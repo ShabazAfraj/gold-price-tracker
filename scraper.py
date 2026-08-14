@@ -1,87 +1,68 @@
 #!/usr/bin/env python3
 """
-Gold.de price scraper for 20g, 50g, 100g bars
-Extracts prices from the homepage table and appends to CSV
-Uses Playwright for JS rendering support
+Gold.de price scraper using requests + BeautifulSoup
+Fallback version (more reliable than Playwright for this site)
 """
 
 import csv
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    from playwright.sync_api import sync_playwright
-except ImportError:
-    print("Error: playwright not installed. Install with: pip install playwright")
-    sys.exit(1)
+import requests
+from bs4 import BeautifulSoup
 
 
 def scrape_gold_prices():
-    """Scrape Gold.de homepage for bar prices using Playwright."""
+    """Scrape Gold.de using requests + BeautifulSoup."""
     
     url = "https://www.gold.de"
-    prices = {}
+    
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de-DE,de;q=0.9",
+        "Referer": "https://www.gold.de/",
+    }
     
     try:
-        with sync_playwright() as p:
-            # Use chromium browser
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-            page = browser.new_page()
-            page.set_default_timeout(30000)
-            
-            # Navigate to page
-            try:
-                page.goto(url, wait_until="load")
-            except Exception as e:
-                print(f"Error navigating to {url}: {e}")
-                browser.close()
-                return None
-            
-            # Look for the BARREN section and extract prices
-            # Target: links containing "goldbarren/20-gramm", etc.
-            targets = {"20": "20-gramm", "50": "50-gramm", "100": "100-gramm"}
-            
-            for weight, path in targets.items():
-                try:
-                    # Find the link for this weight
-                    selector = f"a[href*='{path}']"
-                    link = page.query_selector(selector)
-                    
-                    if link:
-                        # Get the parent row
-                        row = link.evaluate("el => el.closest('tr')")
-                        if row:
-                            # Extract all text from the row
-                            row_text = page.evaluate(
-                                "el => el.innerText",
-                                row
-                            )
-                            
-                            # Look for price pattern "ab X.XXX,XX EUR"
-                            price_match = re.search(
-                                r"ab\s+([\d.]+,\d{2})\s*EUR",
-                                row_text
-                            )
-                            if price_match:
-                                price_str = price_match.group(1).replace(".", "").replace(",", ".")
-                                prices[weight] = float(price_str)
-                except Exception as e:
-                    print(f"Error extracting price for {weight}g: {e}")
-            
-            browser.close()
-    
-    except Exception as e:
-        print(f"Playwright error: {e}")
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error fetching {url}: {e}")
         return None
     
-    if len(prices) >= 2:
+    soup = BeautifulSoup(response.content, "html.parser")
+    prices = {}
+    
+    # Get all text from page
+    text = soup.get_text()
+    
+    # Look for patterns: "20 g ... ab 2.452,26 EUR"
+    patterns = [
+        (r"20\s*g.*?ab\s+([\d.]+,\d{2})\s*EUR", "20"),
+        (r"50\s*g.*?ab\s+([\d.]+,\d{2})\s*EUR", "50"),
+        (r"100\s*g.*?ab\s+([\d.]+,\d{2})\s*EUR", "100"),
+    ]
+    
+    for pattern, weight in patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if match:
+            price_str = match.group(1).replace(".", "").replace(",", ".")
+            try:
+                prices[weight] = float(price_str)
+                print(f"✓ Found {weight}g: €{prices[weight]:.2f}")
+            except ValueError:
+                pass
+    
+    if len(prices) > 0:
         return prices
-    else:
-        print(f"Warning: Only found {len(prices)} prices, expected 3")
-        print(f"Found prices: {prices}")
-        return prices if len(prices) > 0 else None
+    
+    print(f"Warning: Only found {len(prices)} prices")
+    return None
 
 
 def append_to_csv(prices):
@@ -90,8 +71,8 @@ def append_to_csv(prices):
     csv_path = Path("gold_prices.csv")
     timestamp = datetime.now(timezone.utc).isoformat()
     
-    # Initialize CSV if it doesn't exist
-    if not csv_path.exists():
+    # Initialize CSV if doesn't exist or is empty
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -112,20 +93,21 @@ def append_to_csv(prices):
         ])
     
     print(
-        f"[{timestamp}] Prices recorded: "
-        f"20g={prices.get('20')}€ "
-        f"50g={prices.get('50')}€ "
-        f"100g={prices.get('100')}€"
+        f"[{timestamp}] Recorded: "
+        f"20g={prices.get('20', 'N/A')}€ "
+        f"50g={prices.get('50', 'N/A')}€ "
+        f"100g={prices.get('100', 'N/A')}€"
     )
 
 
 def main():
     prices = scrape_gold_prices()
-    if prices:
+    if prices and len(prices) > 0:
         append_to_csv(prices)
+        print(f"✓ Success: Recorded {len(prices)} prices")
         return 0
     else:
-        print("Failed to extract prices")
+        print("✗ Failed to extract prices")
         return 1
 
 
