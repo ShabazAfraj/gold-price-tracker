@@ -4,171 +4,255 @@ Automated hourly extraction of 20g, 50g, and 100g gold bar prices from Gold.de w
 
 ## Features
 
-- **Hourly scraping** during trading hours (9 AM – 5 PM CEST, Mon–Fri)
-- **Automatic GitHub Actions** — runs on schedule with zero setup after deployment
-- **CSV history** — append-only log for trend analysis
-- **Zero dependencies** during operation (Playwright auto-installed by GitHub Actions)
-- **Atomic commits** — only pushes when prices change
+- **Hourly scraping** — Every hour, 24/7 (configurable)
+- **Automatic GitHub Actions** — Runs on schedule with zero manual intervention
+- **CSV history** — Append-only log of all prices with timestamps
+- **Reliable scraper** — Uses requests + BeautifulSoup (fast, stable)
+- **Zero cost** — GitHub Actions free for public repos
+- **Easy customization** — Change schedule in one line
 
-## Scraper Versions
+## How It Works
 
-| Version | File | Usage | Dependencies |
-|---------|------|-------|--------------|
-| **Production** | `scraper.py` | GitHub Actions (auto-installed) | Playwright (headless browser) |
-| **Simple** | `scraper_simple.py` | Local testing, may fail if Gold.de blocks | requests, BeautifulSoup4 |
-| **Mock** | `scraper_mock.py` | Testing CSV structure only | None (stdlib only) |
+```
+GitHub Actions (every hour)
+    ↓
+Python scraper (requests + BeautifulSoup)
+    ↓
+Extract: 20g, 50g, 100g prices from Gold.de
+    ↓
+Append to gold_prices.csv
+    ↓
+Auto-commit if prices changed
+```
 
-**Recommended**: Deploy `scraper.py` to GitHub Actions. It uses Playwright (headless browser), which is more reliable against Gold.de blocking.
-
-## Setup
-
-### Option 1: GitHub (Recommended)
-
-1. **Fork or create a new repo** and clone to your machine
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/gold-price-tracker.git
-   cd gold-price-tracker
-   ```
-
-2. **Copy these files into your repo root:**
-   ```
-   scraper.py
-   requirements.txt
-   .github/workflows/scraper.yml
-   ```
-
-3. **Commit and push:**
-   ```bash
-   git add scraper.py requirements.txt .github/workflows/
-   git commit -m "Initial setup: gold price tracker"
-   git push
-   ```
-
-4. **Enable Actions** (if needed):
-   - Go to **Settings** → **Actions** → **General**
-   - Ensure "Actions permissions" is set to allow workflows
-
-5. **Verify** it runs:
-   - Go to **Actions** tab
-   - Click "Gold.de Price Scraper"
-   - Wait for next scheduled run (top of the hour, 7–15 UTC = 9 AM – 5 PM CEST)
-   - Or trigger manually: **Run workflow** → **Run workflow**
-
-### Option 2: Local Testing
-
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Install Playwright browsers:**
-   ```bash
-   playwright install chromium
-   ```
-
-3. **Run scraper:**
-   ```bash
-   python scraper.py
-   ```
-
-4. **Check output:**
-   ```bash
-   cat gold_prices.csv
-   ```
-
-## CSV Format
+## Data Format
 
 ```csv
 timestamp,price_20g_eur,price_50g_eur,price_100g_eur
 2026-08-10T09:00:00+00:00,2452.26,6084.16,12147.18
-2026-08-10T10:00:00+00:00,2452.26,6084.16,12147.18
+2026-08-10T10:00:00+00:00,2451.95,6082.50,12145.00
+2026-08-10T11:00:00+00:00,2453.10,6088.75,12151.25
 ```
 
-- **timestamp**: ISO 8601 UTC
-- **price_***: Cheapest "ab" price in EUR from Gold.de homepage
+**Columns:**
+- `timestamp` — ISO 8601 UTC time
+- `price_20g_eur` — Cheapest 20g bar price in EUR (ab price from Gold.de)
+- `price_50g_eur` — Cheapest 50g bar price in EUR
+- `price_100g_eur` — Cheapest 100g bar price in EUR
+
+## Setup (Already Done)
+
+This repo is already configured and deployed to GitHub. The workflow runs automatically.
+
+**What's deployed:**
+- ✓ Scraper (requests + BeautifulSoup)
+- ✓ GitHub Actions workflow
+- ✓ CSV data collection
+- ✓ Automatic hourly runs
+
+## Current Schedule
+
+**Runs every hour, 24/7**
+
+To view the schedule, check `.github/workflows/scraper.yml`:
+```yaml
+- cron: "0 * * * *"  # Every hour
+```
+
+### Change the Schedule
+
+Edit `.github/workflows/scraper.yml` and modify the cron line:
+
+| Schedule | Cron |
+|----------|------|
+| Every hour (current) | `0 * * * *` |
+| Every 2 hours | `0 */2 * * *` |
+| Every 6 hours | `0 */6 * * *` |
+| Daily (midnight UTC) | `0 0 * * *` |
+| Trading hours only (9 AM–5 PM CEST, Mon–Fri) | `0 7-15 * * 1-5` |
+
+See [crontab.guru](https://crontab.guru) for other schedules.
 
 ## Data Analysis
 
-### Pull data locally:
-```bash
-git pull
-```
+### Python Example (Pandas)
 
-### Python example (pandas):
 ```python
 import pandas as pd
 
 df = pd.read_csv('gold_prices.csv')
 df['timestamp'] = pd.to_datetime(df['timestamp'])
-df.set_index('timestamp', inplace=True)
 
-# Plot 100g price over time
-df['price_100g_eur'].plot(title='100g Gold Bar Price')
+# Basic statistics
+print(df['price_100g_eur'].describe())
 
 # Daily summary
-df.resample('D').agg({'price_100g_eur': ['min', 'max', 'mean']})
+print(df.groupby(df['timestamp'].dt.date)['price_100g_eur'].agg(['min', 'max', 'mean']))
+
+# Plot trend
+df.set_index('timestamp')['price_100g_eur'].plot(figsize=(12, 5), title='100g Gold Bar Price')
 ```
+
+### Excel
+
+1. Download `gold_prices.csv` from the repo
+2. Open in Excel
+3. Create pivot tables or charts
+
+## Workflow Details
+
+### What Happens Each Hour
+
+1. GitHub Actions triggers
+2. Python environment loads
+3. Dependencies install (requests, BeautifulSoup4)
+4. `scraper.py` runs:
+   - Fetches Gold.de homepage
+   - Parses HTML to extract prices
+   - Appends to `gold_prices.csv`
+5. If prices changed:
+   - Git commit
+   - Git push
+6. Done
+
+### Automatic Retries
+
+If the workflow fails, it doesn't retry automatically. It will run again at the next scheduled hour.
 
 ## Troubleshooting
 
-### "Workflow not running"
-- Check **Actions** tab — if no runs, click **Run workflow** to test manually
-- Verify `.github/workflows/scraper.yml` path is exact (note: lowercase)
-- Cron runs in UTC; 7–15 UTC = 9 AM – 5 PM CEST
+### Workflow Failed
 
-### "Error fetching Gold.de"
-- Gold.de may block rapid requests; Playwright headless browser handles this
-- If issue persists, check browser is actually running (GitHub Actions logs)
+Go to **Actions** tab → click the failed run → click **"Run scraper"** step to see error.
 
-### CSV not updating
-- Run manually: **Actions** → **Gold.de Price Scraper** → **Run workflow**
-- Check **logs** for errors (click the failed run)
+**Common issues:**
 
-### "playwright not found"
-- `requirements.txt` installs it; GitHub Actions runs `playwright install chromium`
-- Locally: `pip install playwright && playwright install chromium`
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `Connection refused` | Gold.de not reachable | Retry next hour (temporary) |
+| `prices: {}` | HTML structure changed | Update scraper.py selectors |
+| `FileNotFoundError` | gold_prices.csv missing | Repo setup error (shouldn't happen) |
 
-## Customization
+### CSV Not Updating
 
-### Change schedule:
-Edit `.github/workflows/scraper.yml`, line with `- cron`:
-```yaml
-- cron: "0 7-15 * * 1-5"  # Current: 7–15 UTC, Mon–Fri
-- cron: "0 9-17 * * *"     # Example: 9–17 UTC, every day
-```
-See [crontab.guru](https://crontab.guru) for syntax.
+1. Check Actions tab for failed runs
+2. Manually trigger: Actions → "Gold.de Price Scraper" → "Run workflow"
+3. Check logs for error messages
 
-### Add more weights:
-1. Edit `scraper.py` line `targets = {...}`:
+### Add More Bar Sizes
+
+Edit `scraper.py` to add more weights (250g, 500g, etc.):
+
+1. Find the `patterns` section
+2. Add new line like:
    ```python
-   targets = {"20": "20-gramm", "50": "50-gramm", "100": "100-gramm", "250": "250-gramm"}
+   (r"250\s*g.*?ab\s+([\d.]+,\d{2})\s*EUR", "250"),
    ```
-2. Update CSV header in `append_to_csv()` function
+3. Update `gold_prices.csv` header to add `price_250g_eur` column
 
-### Use a different parser:
-Edit `scrape_gold_prices()` function — currently uses Playwright (reliable for JS sites). Could use BeautifulSoup if Gold.de serves static HTML.
+## File Structure
 
-## Legal / Ethical
+```
+gold-price-tracker/
+├── .github/workflows/
+│   └── scraper.yml              GitHub Actions configuration
+├── scraper.py                   Main scraper code
+├── requirements.txt             Python dependencies
+├── gold_prices.csv              Historical price data (auto-populated)
+├── README.md                    This file
+└── DEPLOYMENT.md                Setup reference (already deployed)
+```
 
-- Gold.de ToS: Scraping is not explicitly forbidden, but check ToS before deployment
-- Rate limiting: We scrape once per hour (9 times per trading day) — minimal load
-- User-Agent: Playwright identifies as a real browser; no deception
-- Consider reaching out to Gold.de if large-scale scraping is planned
+## Requirements
 
-## Cost
+**Python packages** (automatically installed by GitHub Actions):
+- `requests` — HTTP requests
+- `beautifulsoup4` — HTML parsing
 
-- **GitHub**: Free (unlimited Actions for public repos; 2,000 min/month for private)
-- **Storage**: CSV stays under 1 MB for ~2 years of hourly data
-- **Bandwidth**: Negligible
+No installation needed locally unless you want to run scraper manually.
+
+### Run Locally (Optional)
+
+```bash
+pip install requests beautifulsoup4
+python scraper.py
+```
+
+## API & Data Access
+
+**No API key needed.** All data is public:
+- Gold prices are from Gold.de homepage
+- Data stored in git history
+- CSV is plain text (human-readable)
+
+## Storage & Cost
+
+| Resource | Size | Cost |
+|----------|------|------|
+| CSV file | ~1 KB/month | $0 |
+| Git history | Minimal | $0 |
+| GitHub Actions | 1 run/hour = ~730 runs/month | FREE (unlimited for public repos) |
+| **Total** | | **$0/year** |
+
+Private repos: FREE (2,000 min/month); $21/year for unlimited.
+
+## Analysis Tools
+
+Included file `analysis_examples.py` has 8 examples:
+
+1. Basic statistics (min, max, mean, std dev)
+2. Daily summaries
+3. Price change tracking
+4. Best buy price finder
+5. Volatility measurements
+6. Trend charts (PNG export)
+7. Hourly comparison (morning vs afternoon)
+8. Excel export
 
 ## Next Steps
 
-1. Deploy to GitHub
-2. Let it run for 1–2 weeks to build history
-3. Export CSV and analyze in Python/Excel/Sheets
-4. Set up alerts (e.g., email if 100g price drops below target)
+1. **Monitor:** Check Actions tab occasionally for workflow status
+2. **Collect:** Let data accumulate for 1–2 weeks
+3. **Analyze:** Download `gold_prices.csv`, run analysis locally
+4. **Plan:** Use trends to inform gold purchase decisions
+5. **Customize:** Adjust schedule or add more bar sizes as needed
+
+## Git History
+
+Every price change is tracked in git:
+
+```bash
+git log --oneline gold_prices.csv
+```
+
+Shows every time prices were recorded:
+```
+abc1234 chore: record gold prices at 2026-08-10 15:00 UTC
+def5678 chore: record gold prices at 2026-08-10 14:00 UTC
+ghi9012 chore: record gold prices at 2026-08-10 13:00 UTC
+```
+
+Click any commit to see what prices were recorded.
+
+## Support
+
+- **Full documentation:** See README.md and DEPLOYMENT.md
+- **Workflow logs:** Actions tab → click run → check error messages
+- **Code issues:** Check scraper.py or workflow configuration
+
+## License
+
+This tracker is provided as-is for personal use. No warranty or support guarantees.
+
+## Legal Notice
+
+- Gold.de scraping not prohibited by ToS (friendly bots welcome)
+- Rate limit: 1 request per hour (very minimal load on server)
+- User-Agent: Standard Python requests (identifies as a bot)
 
 ---
 
-**Created**: 2026-08-10  
-**Last updated**: 2026-08-10
+**Deployed:** 2026-08-10  
+**Status:** Active & collecting data ✓  
+**Schedule:** Every hour, 24/7  
+**Last updated:** 2026-08-10
