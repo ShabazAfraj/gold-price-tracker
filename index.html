@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Gold Price Tracker</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.3/papaparse.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f5f6f8;
+            color: #202124;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: auto;
+            padding: 25px;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            margin-top: 0;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+            margin: 25px 0;
+        }
+
+        .card {
+            background: white;
+            border-radius: 14px;
+            padding: 22px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
+
+        .card-title {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .price {
+            font-size: 30px;
+            font-weight: bold;
+        }
+
+        .change {
+            margin-top: 8px;
+            font-size: 14px;
+        }
+
+        .positive {
+            color: #16803c;
+        }
+
+        .negative {
+            color: #c5221f;
+        }
+
+        .neutral {
+            color: #6b7280;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
+
+        .chart-container h2 {
+            margin-top: 0;
+            font-size: 19px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 400px !important;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+        }
+
+        .stat {
+            background: white;
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        .stat-label {
+            color: #6b7280;
+            font-size: 13px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .updated {
+            text-align: right;
+            color: #6b7280;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 800px) {
+            .cards,
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Gold Price Tracker</h1>
+
+    <p class="subtitle">
+        Physical gold prices in EUR — 20g, 50g and 100g
+    </p>
+
+    <div class="updated" id="updated">
+        Loading...
+    </div>
+
+    <!-- CURRENT PRICE CARDS -->
+
+    <div class="cards">
+
+        <div class="card">
+            <div class="card-title">20g Gold</div>
+            <div class="price" id="price20">—</div>
+            <div class="change" id="change20">—</div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">50g Gold</div>
+            <div class="price" id="price50">—</div>
+            <div class="change" id="change50">—</div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">100g Gold</div>
+            <div class="price" id="price100">—</div>
+            <div class="change" id="change100">—</div>
+        </div>
+
+    </div>
+
+    <!-- MAIN CHART -->
+
+    <div class="chart-container">
+        <h2>Gold Price History</h2>
+        <canvas id="goldChart"></canvas>
+    </div>
+
+    <!-- STATISTICS -->
+
+    <div class="stats">
+
+        <div class="stat">
+            <div class="stat-label">100g — Highest recorded</div>
+            <div class="stat-value" id="high100">—</div>
+        </div>
+
+        <div class="stat">
+            <div class="stat-label">100g — Lowest recorded</div>
+            <div class="stat-value" id="low100">—</div>
+        </div>
+
+        <div class="stat">
+            <div class="stat-label">100g — Overall change</div>
+            <div class="stat-value" id="overall100">—</div>
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+const CSV_URL =
+    "https://raw.githubusercontent.com/ShabazAfraj/gold-price-tracker/main/gold_prices.csv";
+
+let chart = null;
+
+
+// --------------------------------------------------
+// FORMATTERS
+// --------------------------------------------------
+
+function euro(value) {
+    return new Intl.NumberFormat("de-DE", {
+        style: "currency",
+        currency: "EUR",
+        maximumFractionDigits: 2
+    }).format(value);
+}
+
+
+function percent(value) {
+    const sign = value > 0 ? "+" : "";
+    return sign + value.toFixed(2) + "%";
+}
+
+
+// --------------------------------------------------
+// LOAD CSV
+// --------------------------------------------------
+
+async function loadData() {
+
+    try {
+
+        // Cache-buster ensures we get the newest CSV
+        const url = CSV_URL + "?t=" + Date.now();
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error("Could not load CSV");
+        }
+
+        const csvText = await response.text();
+
+        Papa.parse(csvText, {
+            header: true,
+            dynamicTyping: true,
+            skipEmptyLines: true,
+
+            complete: function(results) {
+
+                processData(results.data);
+
+            }
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        document.getElementById("updated").textContent =
+            "Error loading data";
+
+    }
+
+}
+
+
+// --------------------------------------------------
+// PROCESS DATA
+// --------------------------------------------------
+
+function processData(data) {
+
+    data = data
+        .filter(row =>
+            row.timestamp &&
+            row.price_20g_eur != null &&
+            row.price_50g_eur != null &&
+            row.price_100g_eur != null
+        )
+        .sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+        );
+
+
+    if (data.length === 0) {
+        return;
+    }
+
+
+    const latest = data[data.length - 1];
+
+
+    // ------------------------------------------------
+    // CURRENT PRICES
+    // ------------------------------------------------
+
+    document.getElementById("price20").textContent =
+        euro(latest.price_20g_eur);
+
+    document.getElementById("price50").textContent =
+        euro(latest.price_50g_eur);
+
+    document.getElementById("price100").textContent =
+        euro(latest.price_100g_eur);
+
+
+    // ------------------------------------------------
+    // 24 HOUR CHANGE
+    // ------------------------------------------------
+
+    const latestTime = new Date(latest.timestamp);
+
+    const yesterday = new Date(
+        latestTime.getTime() - 24 * 60 * 60 * 1000
+    );
+
+
+    let previous24h = data[0];
+
+    for (let i = data.length - 1; i >= 0; i--) {
+
+        if (new Date(data[i].timestamp) <= yesterday) {
+
+            previous24h = data[i];
+
+            break;
+        }
+    }
+
+
+    updateChange(
+        "change20",
+        latest.price_20g_eur,
+        previous24h.price_20g_eur
+    );
+
+    updateChange(
+        "change50",
+        latest.price_50g_eur,
+        previous24h.price_50g_eur
+    );
+
+    updateChange(
+        "change100",
+        latest.price_100g_eur,
+        previous24h.price_100g_eur
+    );
+
+
+    // ------------------------------------------------
+    // LAST UPDATED
+    // ------------------------------------------------
+
+    document.getElementById("updated").textContent =
+        "Last update: " +
+        latestTime.toLocaleString("de-DE");
+
+
+    // ------------------------------------------------
+    // HIGH / LOW
+    // ------------------------------------------------
+
+    const prices100 = data.map(
+        row => row.price_100g_eur
+    );
+
+    const high = Math.max(...prices100);
+    const low = Math.min(...prices100);
+
+    document.getElementById("high100").textContent =
+        euro(high);
+
+    document.getElementById("low100").textContent =
+        euro(low);
+
+
+    // ------------------------------------------------
+    // OVERALL CHANGE
+    // ------------------------------------------------
+
+    const first = prices100[0];
+
+    const overall =
+        ((latest.price_100g_eur - first) / first) * 100;
+
+    const overallElement =
+        document.getElementById("overall100");
+
+    overallElement.textContent = percent(overall);
+
+    overallElement.className =
+        "stat-value " +
+        (overall > 0
+            ? "positive"
+            : overall < 0
+                ? "negative"
+                : "neutral");
+
+
+    // ------------------------------------------------
+    // CHART
+    // ------------------------------------------------
+
+    createChart(data);
+
+}
+
+
+// --------------------------------------------------
+// CHANGE CALCULATION
+// --------------------------------------------------
+
+function updateChange(elementId, current, previous) {
+
+    if (!previous) return;
+
+    const change =
+        ((current - previous) / previous) * 100;
+
+    const element =
+        document.getElementById(elementId);
+
+    element.textContent =
+        "24h: " + percent(change);
+
+    element.className =
+        "change " +
+        (change > 0
+            ? "positive"
+            : change < 0
+                ? "negative"
+                : "neutral");
+}
+
+
+// --------------------------------------------------
+// CHART
+// --------------------------------------------------
+
+function createChart(data) {
+
+    const labels = data.map(row =>
+        new Date(row.timestamp).toLocaleString(
+            "de-DE",
+            {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit"
+            }
+        )
+    );
+
+
+    const ctx =
+        document.getElementById("goldChart")
+        .getContext("2d");
+
+
+    if (chart) {
+        chart.destroy();
+    }
+
+
+    chart = new Chart(ctx, {
+
+        type: "line",
+
+        data: {
+
+            labels: labels,
+
+            datasets: [
+
+                {
+                    label: "20g",
+                    data: data.map(
+                        row => row.price_20g_eur
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.2
+                },
+
+                {
+                    label: "50g",
+                    data: data.map(
+                        row => row.price_50g_eur
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.2
+                },
+
+                {
+                    label: "100g",
+                    data: data.map(
+                        row => row.price_100g_eur
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.2
+                }
+
+            ]
+
+        },
+
+        options: {
+
+            responsive: true,
+
+            maintainAspectRatio: false,
+
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
+
+            plugins: {
+
+                legend: {
+                    position: "top"
+                },
+
+                tooltip: {
+
+                    callbacks: {
+
+                        label: function(context) {
+
+                            return context.dataset.label +
+                                ": " +
+                                euro(context.raw);
+
+                        }
+
+                    }
+
+                }
+
+            },
+
+            scales: {
+
+                x: {
+                    ticks: {
+                        maxTicksLimit: 12
+                    }
+                },
+
+                y: {
+
+                    ticks: {
+
+                        callback: function(value) {
+                            return euro(value);
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    });
+
+}
+
+
+// --------------------------------------------------
+// INITIAL LOAD
+// --------------------------------------------------
+
+loadData();
+
+
+// --------------------------------------------------
+// AUTO REFRESH
+// Every 10 minutes
+// --------------------------------------------------
+
+setInterval(loadData, 10 * 60 * 1000);
+
+</script>
+
+</body>
+</html>
