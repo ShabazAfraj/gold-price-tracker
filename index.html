@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>Gold Price Tracker</title>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -126,6 +125,26 @@
             margin-bottom: 10px;
         }
 
+        .error {
+            background: #fce8e6;
+            color: #c5221f;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .csv-upload {
+            background: white;
+            padding: 20px;
+            border-radius: 14px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
+
+        .csv-upload input[type="file"] {
+            padding: 10px;
+        }
+
         @media (max-width: 800px) {
             .cards,
             .stats {
@@ -148,6 +167,15 @@
     <p class="subtitle">
         Physical gold prices in EUR — 20g, 50g and 100g
     </p>
+
+    <div class="csv-upload">
+        <label>Load custom CSV: <input type="file" id="csvFile" accept=".csv"></label>
+        <small style="display: block; margin-top: 10px; color: #6b7280;">
+            Expected columns: <code>timestamp, price_20g_eur, price_50g_eur, price_100g_eur</code>
+        </small>
+    </div>
+
+    <div id="errorContainer"></div>
 
     <div class="updated" id="updated">
         Loading...
@@ -210,9 +238,31 @@
 
 <script>
 
-const CSV_URL = "./gold_prices.csv";
+// GitHub Pages raw content URL — change USERNAME and REPO to match your repo
+const GITHUB_USERNAME = "shabazafraj";
+const GITHUB_REPO = "gold-price-tracker";
+const GITHUB_BRANCH = "main"; // or "master" if that's your default branch
+
+const CSV_URL = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/gold_prices.csv`;
 
 let chart = null;
+
+
+// --------------------------------------------------
+// SAMPLE DATA (for testing without CSV file)
+// --------------------------------------------------
+
+const SAMPLE_DATA = `timestamp,price_20g_eur,price_50g_eur,price_100g_eur
+2024-01-01T10:00:00Z,1250.50,3126.25,6252.50
+2024-01-02T10:00:00Z,1255.75,3139.38,6278.75
+2024-01-03T10:00:00Z,1248.25,3120.63,6241.25
+2024-01-04T10:00:00Z,1260.00,3150.00,6300.00
+2024-01-05T10:00:00Z,1265.50,3163.75,6327.50
+2024-01-06T10:00:00Z,1270.00,3175.00,6350.00
+2024-01-07T10:00:00Z,1268.75,3171.88,6343.75
+2024-01-08T10:00:00Z,1275.25,3188.13,6376.25
+2024-01-09T10:00:00Z,1280.00,3200.00,6400.00
+2024-01-10T10:00:00Z,1285.50,3213.75,6427.50`;
 
 
 // --------------------------------------------------
@@ -234,24 +284,49 @@ function percent(value) {
 }
 
 
+function showError(message) {
+    const container = document.getElementById("errorContainer");
+    container.innerHTML = `<div class="error">${message}</div>`;
+}
+
+
+function clearError() {
+    document.getElementById("errorContainer").innerHTML = "";
+}
+
+
 // --------------------------------------------------
 // LOAD CSV
 // --------------------------------------------------
 
-async function loadData() {
+async function loadData(csvContent = null) {
 
     try {
 
-        // Cache-buster ensures we get the newest CSV
-        const url = CSV_URL + "?t=" + Date.now();
+        clearError();
 
-        const response = await fetch(url);
+        let csvText;
 
-        if (!response.ok) {
-            throw new Error("Could not load CSV");
+        if (csvContent) {
+            // User uploaded a file
+            csvText = csvContent;
+        } else {
+            // Try to load from ./gold_prices.csv
+            try {
+                const url = CSV_URL + "?t=" + Date.now();
+                const response = await fetch(url);
+
+                if (response.ok) {
+                    csvText = await response.text();
+                } else {
+                    throw new Error("CSV not found");
+                }
+            } catch (e) {
+                // Fall back to sample data
+                showError("⚠️ Could not load gold_prices.csv. Using sample data. Upload your CSV above.");
+                csvText = SAMPLE_DATA;
+            }
         }
-
-        const csvText = await response.text();
 
         Papa.parse(csvText, {
             header: true,
@@ -259,18 +334,19 @@ async function loadData() {
             skipEmptyLines: true,
 
             complete: function(results) {
-
                 processData(results.data);
+            },
 
+            error: function(error) {
+                showError(`CSV parsing error: ${error.message}`);
+                console.error(error);
             }
         });
 
     } catch (error) {
 
         console.error(error);
-
-        document.getElementById("updated").textContent =
-            "Error loading data";
+        showError(`Error: ${error.message}`);
 
     }
 
@@ -296,6 +372,7 @@ function processData(data) {
 
 
     if (data.length === 0) {
+        showError("No valid data found in CSV. Check column names: timestamp, price_20g_eur, price_50g_eur, price_100g_eur");
         return;
     }
 
@@ -490,9 +567,11 @@ function createChart(data) {
                     data: data.map(
                         row => row.price_20g_eur
                     ),
+                    borderColor: "#c7a351",
                     borderWidth: 2,
                     pointRadius: 0,
-                    tension: 0.2
+                    tension: 0.2,
+                    fill: false
                 },
 
                 {
@@ -500,9 +579,11 @@ function createChart(data) {
                     data: data.map(
                         row => row.price_50g_eur
                     ),
+                    borderColor: "#d4af37",
                     borderWidth: 2,
                     pointRadius: 0,
-                    tension: 0.2
+                    tension: 0.2,
+                    fill: false
                 },
 
                 {
@@ -510,9 +591,11 @@ function createChart(data) {
                     data: data.map(
                         row => row.price_100g_eur
                     ),
+                    borderColor: "#ffd700",
                     borderWidth: 2,
                     pointRadius: 0,
-                    tension: 0.2
+                    tension: 0.2,
+                    fill: false
                 }
 
             ]
@@ -584,6 +667,25 @@ function createChart(data) {
 
 
 // --------------------------------------------------
+// FILE UPLOAD HANDLER
+// --------------------------------------------------
+
+document.getElementById("csvFile").addEventListener("change", function(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            loadData(e.target.result);
+        };
+        reader.onerror = function() {
+            showError("Error reading file");
+        };
+        reader.readAsText(file);
+    }
+});
+
+
+// --------------------------------------------------
 // INITIAL LOAD
 // --------------------------------------------------
 
@@ -595,7 +697,7 @@ loadData();
 // Every 10 minutes
 // --------------------------------------------------
 
-setInterval(loadData, 10 * 60 * 1000);
+setInterval(() => loadData(), 10 * 60 * 1000);
 
 </script>
 
